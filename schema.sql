@@ -1,0 +1,43 @@
+DROP TABLE IF EXISTS users;
+
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email STRING UNIQUE NOT NULL UNIQUE,
+    password_hash STRING NOT NULL,
+    role STRING NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    locked BOOLEAN DEFAULT FALSE,
+    CONSTRAINT role_enum CHECK (upper(role) IN ('ANALYST', 'MANAGER'))
+);
+
+DROP TABLE IF EXISTS tickets;
+
+CREATE TABLE tickets(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title STRING NOT NULL,
+    description TEXT DEFAULT '',
+    severity STRING NOT NULL,
+    status STRING NOT NULL DEFAULT 'OPEN',
+    owner_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (owner_id) REFERENCES users(id),
+
+    CONSTRAINT severity_enum CHECK (upper(severity) IN ('LOW', 'MEDIUM', 'HIGH')),
+    CONSTRAINT status_enum CHECK (upper(status) IN ('OPEN', 'IN_PROGRESS', 'RESOLVED'))
+);
+
+
+DROP TABLE IF EXISTS audit_logs;
+
+CREATE TABLE audit_logs(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    action STRING NOT NULL,
+    resource STRING NOT NULL,
+    resource_id STRING NOT NULL,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ip_address STRING NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+

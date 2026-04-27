@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>TICKETS</h2>
+    {% if user["role"]=='MANAGER' %}
+    <h5>As a manager, you are viewing all tickets.</h5>
+    {% endif %}
+
+    <br>
+    <form method="post" action="tickets">
+            <label> Title </label>
+            <input name="title" type="text">
+            <label> Description </label>
+            <input name="description" type="text">
+    <label> Severity </label>
+    <select name="severity" id="severity">
+      <option value="LOW">Low</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="HIGH">High</option>
+    </select>
+    <label> Status </label>
+    <select name="status" id="status">
+      <option value="OPEN">Open</option>
+      <option value="IN_PROGRESS">In progress</option>
+      <option value="RESOLVED">Resolved</option>
+    </select>
+    <button type="submit">Create ticket</button>
+    </form>
+    <br>
+
+
+
+    <table>
+    <tr>
+        <th>Title</th>
+        <th>Description</th>
+        <th>Severity</th>
+        <th>Status</th>
+        {% if user["role"]=='MANAGER' %}
+        <th>Owner</th>
+        {% endif %}
+    </tr>
+    {% for ticket in tickets %}
+
+   <tr>
+        <td>{{ ticket.title }}</td>
+        <td>{{ ticket.description }}</td>
+        <td>{{ ticket.severity }}</td>
+        <td>{{ ticket.status }}</td>
+        {% if user["role"]=='MANAGER' %}
+            <td>{{ ticket.email }}</td>
+        {% endif %}
+
+        <td>
+        {% if user["role"]=='MANAGER' or ticket.owner_id == user["id"] %}
+        <form method="post" action="tickets/{{ ticket.id }}">
+            <label> Update status </label>
+            <select name="status" id="status">
+                <option value="OPEN" {% if ticket.status == 'OPEN' %}selected{% endif %}>Open</option>
+                <option value="IN_PROGRESS" {% if ticket.status == 'IN_PROGRESS' %}selected{% endif %}>In progress</option>
+                <option value="RESOLVED" {% if ticket.status == 'RESOLVED' %}selected{% endif %}>Resolved</option>
+            </select>
+            <button type="submit">Update status</button>
+        </form>
+        {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+
+{% endblock %}

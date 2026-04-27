@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+    <h2><b> Welcome, </b> {{ user["email"] }}</h2>
+    <h2>You now have access to the app.</h2>
+
+    <button>
+    <a href="{{ url_for('tickets') }}">View Tickets</a>
+    </button>
+{% endblock %}
