@@ -176,18 +176,29 @@ def tickets():
         severity = request.form.get("severity")
         status = request.form.get("status")
 
-        if not title or not description:
-            flash("Title and description are mandatory.")
-            return render_template("tickets.html", user=user, tickets=[])
+        db = get_db()
+        parameters = "AND "
+        if title:
+            parameters += f"title LIKE '%{title}%' AND "
+        if description:
+            parameters += f"description LIKE '%{description}%' AND "
+        if severity != "None":
+            parameters += f"severity = upper('{severity}') AND "
+        if status != "None":
+            parameters += f"status = upper('{status}') AND "
 
-        db.execute(
-            "INSERT INTO tickets (title, description, severity, status, owner_id) VALUES (?, ?, ?, ?, ?)",
-            (title, description, severity, status, user["id"])
-        )
-        db.commit()
-        flash("Ticket created.")
-        audit_log(user_id=user["id"], action="create ticket", resource="ticket", resource_id=db.execute("SELECT last_insert_rowid() FROM TICKETS").fetchone()[0])
-        return redirect(url_for("tickets"))
+
+        parameters = parameters[:-5]  # elimin ultimul AND
+        user_tickets = []
+        if user["role"] == "MANAGER":
+            user_tickets = db.execute(
+                f"SELECT t.*, u.email FROM tickets t JOIN users u ON t.owner_id==u.id WHERE 1=1 {parameters}",
+                ).fetchall()
+        else:
+            user_tickets = db.execute(f"SELECT * FROM tickets WHERE owner_id = ? {parameters}",
+                                      (user["id"], )).fetchall()
+
+        return render_template("tickets.html", user=user, tickets=user_tickets)
 
     user_tickets = []
     if user["role"] == "MANAGER":
@@ -196,6 +207,7 @@ def tickets():
         user_tickets = db.execute("SELECT * FROM tickets WHERE owner_id = ?", (user["id"],)).fetchall()
 
     return render_template("tickets.html", user=user, tickets=user_tickets)
+
 
 @app.post("/tickets/<ticket_id>") #update ticket status
 def update_ticket(ticket_id):
@@ -221,6 +233,32 @@ def update_ticket(ticket_id):
     flash("Ticket updated.")
     audit_log(user_id=user["id"], action="update ticket", resource="ticket", resource_id=ticket_id)
     return redirect(url_for("tickets"))
+
+ #add new ticket
+@app.post("/tickets/add")
+def add_ticket():
+    user = current_user() #verificare sesiune
+    if not user:
+        return redirect(url_for("login"))
+    db = get_db()
+    title = request.form.get("title")
+    description = request.form.get("description")
+    severity = request.form.get("severity")
+    status = request.form.get("status")
+    if not title or not description:
+        flash("Title and description are mandatory.")
+        return render_template("tickets.html", user=user, tickets=[])
+
+    db.execute(
+        "INSERT INTO tickets (title, description, severity, status, owner_id) VALUES (?, ?, ?, ?, ?)",
+        (title, description, severity, status, user["id"])
+    )
+    db.commit()
+    flash("Ticket created.")
+    audit_log(user_id=user["id"], action="create ticket", resource="ticket",
+              resource_id=db.execute("SELECT last_insert_rowid() FROM TICKETS").fetchone()[0])
+    return redirect(url_for("tickets"))
+
 
 if __name__ == '__main__':
     app.run()
