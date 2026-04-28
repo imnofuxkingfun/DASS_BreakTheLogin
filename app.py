@@ -1,11 +1,18 @@
+import re, pytz
+import secrets
 import sqlite3
-from flask import Flask, render_template, request, make_response, redirect, url_for, flash, abort
+from datetime import timedelta, datetime
+
+from flask import Flask, render_template, request, make_response, redirect, url_for, flash, abort, session
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_bcrypt import Bcrypt
 
 from database import get_db, close_db, init_db, audit_log
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "123"
+app.config["SECRET_KEY"] = "6ewrEYScgvW7VzgaHc8vMw93eRoTUsuwPaWiqjdoVPLIRR4FrcmiAcL6V9L3KDok" #token imbunatatit
+app.config['PERMANENT_SESSION_LIFETIME'] =  timedelta(minutes=15) #sesiune de 15 min
+bcrypt = Bcrypt(app)
 
 @app.cli.command("init-db")
 def init_db_command():
@@ -15,21 +22,21 @@ def init_db_command():
     print(db.execute("SELECT * FROM audit_logs").fetchall()[0]["action"])
 
 @app.cli.command("set-cookies-config")
-def set_cookies_config(): #vulnerabilitate cookies slabe
-    app.config["SESSION_COOKIE_HTTPONLY"] = False #cookie fara HttpOnly, secure si samesite
-    app.config["SESSION_COOKIE_SECURE"] = False
-    app.config["SESSION_COOKIE_SAMESITE"] = False
+def set_cookies_config(): #vulnerabilitate cookies slabe - fixed + sesiuni
+    app.config["SESSION_COOKIE_HTTPONLY"] = True #cookie cu HttpOnly, secure si samesite
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = True
 
 @app.teardown_appcontext
 def teardown_db(exception):
     close_db(exception)
 
 def current_user():
-    user_email = request.cookies.get("user_email")
-    if not user_email:
+    user_id = session.get("user_id")
+    if not user_id:
         return None
     db = get_db()
-    return db.execute("SELECT * FROM users WHERE email = ?", (user_email,)).fetchone()
+    return db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
 
 #HOME PAGE
 @app.get("/")
@@ -51,24 +58,44 @@ def register():
             flash("Email and password are mandatory.")
             return render_template("register.html")
 
-        #vulnerabilitate - nicio validare nici la email nici la parola
-        # si fara hash la parola
-
         db = get_db()
+
+        #vulnerabilitate - nicio validare nici la email nici la parola - fixed
+        # si fara hash la parola - fixed
+
+        #check email
+        email_match = re.search(r"^[-\w\.]+@([\w-]+\.)+[\w-]{2,4}$", email)
+        if not email_match:
+            flash("Invalid email format.")
+            return render_template("register.html")
+
+        #verificare daca email ul exista deja in baza de date
+        email_exists = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if email_exists:
+            flash("Email already registered.")
+            return render_template("register.html")
+
+        #check password
+        pw_check = re.search(r"^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*()_+\-=[\]{}|;':\",./<>?])(?=.*[a-zA-Z]).{8,}$", password)
+        if not pw_check:
+            flash("Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number and a special character.")
+            return render_template("register.html")
+
+        pw_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+
+
+
         try:
             db.execute(
                 "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-                (email, password, role), #stocare a parolei in clar
+                (email, pw_hash, role), #stocare a parolei hashuite!!
             )
             db.commit()
 
             #user id ptr audit log
             new_user_id = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()["id"]
-        except sqlite3.IntegrityError as e:
-            flash(f"Error: {e}")
-            return render_template("register.html")
         except Exception as e:
-            flash(f"Error: {e}")
+            flash(f"Erorr creating account. Please try again") #mesaj eroare fara stack trace-
             return render_template("register.html")
 
         flash("Account created. Please log in")
@@ -85,46 +112,75 @@ def login():
         email = (request.form.get("email") or "").strip()
         password = request.form.get("password") or ""
 
+
         db = get_db()
 
-        query = f"SELECT id FROM users WHERE email = '{email}' AND password_hash = '{password}'"
-        user = db.execute(query).fetchone()
+        email_query = db.execute( "SELECT * FROM users WHERE email = ?",(email,)).fetchone()
+        pw_check = bcrypt.check_password_hash(email_query["password_hash"] , password ) if email_query else False
 
-        query_user = f"SELECT * FROM users WHERE email = '{email}'"
-        email_query = db.execute(query_user).fetchone()
+        if not email_query or not pw_check:
+            flash("Incorrect credentials.")#vulerabilitate parola / email specific incorect - fixed
+            if email_query: #exista contul, a gresit parola
+                # vulnerabilitate - numar nelimitat de incercari de login - fixed
+                audit_log(user_id=email_query["id"], action="failed login attempt", resource="auth", resource_id=email_query["id"])
+                #daca au fost 5 incercari in ultima ora, blocam contul
+                failed_attempts = db.execute(
+                    "SELECT COUNT(*) FROM audit_logs WHERE user_id = ? AND action = 'failed login attempt' AND timestamp > datetime('now', '-1 hour')",
+                    (email_query["id"],)
+                ).fetchone()[0]
+                if failed_attempts == 2:
+                    flash("Remaining login attempts: 3")
+                elif failed_attempts == 3:
+                    flash("Remaining login attempts: 2")
+                elif failed_attempts == 4:
+                    flash("Remaining login attempts: 1")
+                elif failed_attempts >= 5:
+                    flash("Account locked due to too many failed login attempts. Please contact management.")
+                    audit_log(user_id=email_query["id"], action="account locked", resource="auth", resource_id=email_query["id"])
 
-
-        if not email_query: #vulerabilitate parola / email specific incorect
-            flash("Incorrect email.")
             return render_template("login.html")
-        elif email_query and not user:
-            flash("Incorrect password.")
+
+
+        locked = db.execute(
+            "SELECT locked FROM users WHERE id = ?",
+            (email_query["id"],)
+        ).fetchone()
+        if locked == 0:
+            flash("Account is currently locked due to too many failed login attempts. Please contact managment.")
             return render_template("login.html")
 
-        #vulnerabilitate - numar nelimitat de incercari de login
-        response = make_response(redirect(url_for("home")))
-        response.set_cookie("user_email", email, max_age=60*60*24) #vulnerabilitate, cookie tine o zi intreaga
-        audit_log(user_id=user["id"], action="login", resource="auth", resource_id=user["id"])
+        session["permanent"] = True #ca sa fie 15 min
+        session["user_id"] = email_query["id"]
+        audit_log(user_id=email_query["id"], action="login", resource="auth", resource_id=email_query["id"])
 
-        return response
+        return render_template("home.html", user=email_query)
 
     return render_template("login.html")
 
 #LOGOUT
 @app.post("/logout")
 def logout():
-    response = make_response(redirect(url_for("home")))
-    response.set_cookie("user_email", "", expires=0)
-    audit_log(user_id=current_user()["id"], action="logout", resource="auth", resource_id=current_user()["id"])
-    return response
+    user = current_user()
+    audit_log(user_id=user["id"], action="logout", resource="auth", resource_id=user["id"])
+    session.clear()
+    return redirect(url_for("login"))
 
 #password reset email input page -> token generation
 @app.route("/forgot-password-email", methods=["GET", "POST"])
 def forgot_password():
     if request.method == "POST":
-        token = "123"  #vulnerabilitate token slab / reutilizabil
-        flash("Token for password reset:" + token)
-        return render_template("forgot-password-token.html", email=request.form.get("email"))
+        #vulnerabilitate token slab / reutilizabil - fixed
+        #daca nu e expirat token ul, nu generam altul nou, ci folosim pe ala existent
+        if session.get("rst_tkn") and session.get("tkn_cldwn") and session["tkn_cldwn"] > pytz.utc.localize(datetime.now()) - timedelta(minutes=1):
+            token = session["rst_tkn"]
+
+        else:
+            token = secrets.token_urlsafe(10)
+            session["rst_tkn"] = token
+            session["tkn_cldwn"] = datetime.now()  # scurtate in speranta sa nu fie prea vizibile ptr client
+        flash("Token for password reset:" + token) #pentru demo
+
+        return render_template("forgot-password-token.html", email=request.form.get("email"), token=token)
 
     return render_template("forgot-password-email.html")
 
@@ -132,10 +188,17 @@ def forgot_password():
 @app.post("/forgot-password-token-verification")
 def forgot_password_token_verification():
     email = request.form.get("email")
-    token = request.form.get("token")
+    input_token = request.form.get("input_token")
 
-    if token != "123":
-        flash("invalid token")
+    print("Session token:", session.get("tkn_cldwn"))
+    #check sa nu fi expirat token ul
+    if session["tkn_cldwn"] < pytz.utc.localize(datetime.now()) - timedelta(minutes=1):
+        session.clear()
+        flash("Token expired. Please request a new one.")
+        return render_template("forgot-password-email.html")
+
+    if session["rst_tkn"] != input_token:
+        flash("Invalid token")
         return render_template("forgot-password-token.html", email=email)
 
     return render_template("forgot-password-reset.html", email=email)
@@ -145,17 +208,21 @@ def forgot_password_token_verification():
 def forgot_password_reset():
     email = request.form.get("email")
     new_password = request.form.get("new_password")
+
+    pw_check = re.search(r"^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*()_+\-=[\]{}|;':\",./<>?])(?=.*[a-zA-Z]).{8,}$",
+                         new_password)
+    if not pw_check:
+        flash(
+            "Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number and a special character.")
+        return render_template("register.html")
+
     db = get_db()
-
-    # verificare daca email-ul exista in baza de date
-    query_user = f"SELECT * FROM users WHERE email = '{email}'"
-    email_query = db.execute(query_user).fetchone()
-    if not email_query:
-        flash("Invalid EMAIL." + email)
-        return render_template("forgot-password-token.html", email=email)
-
-    db.execute(f"UPDATE users SET password_hash = '{new_password}' WHERE email = '{email}'") #vulnerabilitate fara hashing
+    pw_hash = bcrypt.generate_password_hash(new_password).decode('utf-8')
+    db.execute("UPDATE users SET password_hash = ? WHERE email = ?",(pw_hash, email,)) #vulnerabilitate fara hashing - fixed
     db.commit()
+
+    email_query = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+
     flash("Password reset. Please log in.")
     audit_log(user_id=email_query["id"], action="reset password", resource="auth", resource_id=email_query["id"])
     return redirect(url_for("login"))
@@ -176,27 +243,31 @@ def tickets():
         severity = request.form.get("severity")
         status = request.form.get("status")
 
-        db = get_db()
-        parameters = "AND "
-        if title:
-            parameters += f"title LIKE '%{title}%' AND "
-        if description:
-            parameters += f"description LIKE '%{description}%' AND "
-        if severity != "None":
-            parameters += f"severity = upper('{severity}') AND "
-        if status != "None":
-            parameters += f"status = upper('{status}') AND "
+        query_string = ""
+        parameters = []
 
-
-        parameters = parameters[:-5]  # elimin ultimul AND
-        user_tickets = []
         if user["role"] == "MANAGER":
-            user_tickets = db.execute(
-                f"SELECT t.*, u.email FROM tickets t JOIN users u ON t.owner_id==u.id WHERE 1=1 {parameters}",
-                ).fetchall()
+            query_string = "SELECT t.*, u.email FROM tickets t JOIN users u ON t.owner_id==u.id WHERE 1=1"
         else:
-            user_tickets = db.execute(f"SELECT * FROM tickets WHERE owner_id = ? {parameters}",
-                                      (user["id"], )).fetchall()
+            query_string = "SELECT * FROM tickets WHERE owner_id = ?"
+            parameters.append(user["id"])
+
+        if title:
+            query_string += " AND title LIKE ?"
+            parameters.append(f"%{title}%")
+        if description:
+            query_string += " AND description LIKE ?"
+            parameters.append(f"%{description}%")
+        if severity != "None":
+            query_string += " AND severity = ?"
+            parameters.append(severity)
+        if status != "None":
+            query_string += " AND status = ?"
+            parameters.append(status)
+
+        db = get_db()
+        user_tickets = db.execute(query_string,
+                                  parameters).fetchall()
 
         return render_template("tickets.html", user=user, tickets=user_tickets)
 

@@ -22,7 +22,7 @@
 </head>
 <body>
   <nav>
-    {% if request.cookies.get("user_email") %}
+    {% if session.get("user_id") %}
         <a href="{{ url_for('home') }}">Home</a> |
       <form action="{{ url_for('logout') }}" method="post" style="display:inline;">
         <button type="submit">Logout</button>
