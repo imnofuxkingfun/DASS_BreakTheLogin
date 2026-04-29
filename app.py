@@ -118,6 +118,10 @@ def login():
         email_query = db.execute( "SELECT * FROM users WHERE email = ?",(email,)).fetchone()
         pw_check = bcrypt.check_password_hash(email_query["password_hash"] , password ) if email_query else False
 
+        if email_query["locked"]:
+            flash("Account is currently locked due to too many failed login attempts. Please contact managment.")
+            return render_template("login.html")
+
         if not email_query or not pw_check:
             flash("Incorrect credentials.")#vulerabilitate parola / email specific incorect - fixed
             if email_query: #exista contul, a gresit parola
@@ -140,11 +144,6 @@ def login():
                     db.commit()
                     audit_log(user_id=email_query["id"], action="account locked", resource="auth", resource_id=email_query["id"])
 
-            return render_template("login.html")
-
-
-        if email_query["locked"]:
-            flash("Account is currently locked due to too many failed login attempts. Please contact managment.")
             return render_template("login.html")
 
         session["permanent"] = True #ca sa fie 15 min
