@@ -143,11 +143,7 @@ def login():
             return render_template("login.html")
 
 
-        locked = db.execute(
-            "SELECT locked FROM users WHERE id = ?",
-            (email_query["id"],)
-        ).fetchone()
-        if locked == 0:
+        if email_query["locked"]:
             flash("Account is currently locked due to too many failed login attempts. Please contact managment.")
             return render_template("login.html")
 
