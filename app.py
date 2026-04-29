@@ -212,7 +212,7 @@ def forgot_password_reset():
     if not pw_check:
         flash(
             "Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number and a special character.")
-        return render_template("register.html")
+        return render_template("forgot-password-reset.html", email=email)
 
     db = get_db()
     pw_hash = bcrypt.generate_password_hash(new_password).decode('utf-8')
