@@ -4,7 +4,7 @@ from pathlib import Path
 from flask import g, request
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "database.db"
+DB_PATH = BASE_DIR / "database_secure.db"
 SCHEMA_PATH = BASE_DIR / "schema.sql"
 
 def get_db():
