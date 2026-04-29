@@ -129,13 +129,13 @@ def login():
                     (email_query["id"],)
                 ).fetchone()[0]
                 if failed_attempts == 2:
-                    flash("Remaining login attempts: 3")
+                    flash("Remaining login attempts in the last hour: 3")
                 elif failed_attempts == 3:
-                    flash("Remaining login attempts: 2")
+                    flash("Remaining login attempts in the last hour: 2")
                 elif failed_attempts == 4:
-                    flash("Remaining login attempts: 1")
+                    flash("Remaining login attempts in the last hour: 1")
                 elif failed_attempts >= 5:
-                    flash("Account locked due to too many failed login attempts. Please contact management.")
+                    flash("Account locked due to too many failed login attempts in the last hour. Please contact management.")
                     audit_log(user_id=email_query["id"], action="account locked", resource="auth", resource_id=email_query["id"])
 
             return render_template("login.html")
