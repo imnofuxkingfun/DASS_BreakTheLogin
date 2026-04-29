@@ -136,6 +136,8 @@ def login():
                     flash("Remaining login attempts in the last hour: 1")
                 elif failed_attempts >= 5:
                     flash("Account locked due to too many failed login attempts in the last hour. Please contact management.")
+                    db.execute("UPDATE users SET locked = 1 WHERE id = ?", (email_query["id"],))
+                    db.commit()
                     audit_log(user_id=email_query["id"], action="account locked", resource="auth", resource_id=email_query["id"])
 
             return render_template("login.html")
