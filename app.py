@@ -224,8 +224,8 @@ def update_ticket(ticket_id):
     if not ticket:
         return redirect(url_for("tickets"))
 
-    # verificam daca user ul e owner sau manager
-    if user["role"] != "MANAGER" and ticket["owner_id"] != user["id"]:
+    # verificam daca user ul e manager
+    if user["role"] != "MANAGER":
         return redirect(url_for("home"))
 
     db.execute("UPDATE tickets SET status = ? WHERE id = ?", (new_status, ticket_id))
@@ -258,6 +258,19 @@ def add_ticket():
     audit_log(user_id=user["id"], action="create ticket", resource="ticket",
               resource_id=db.execute("SELECT last_insert_rowid() FROM TICKETS").fetchone()[0])
     return redirect(url_for("tickets"))
+
+@app.get("/audit-logs")
+def audit_logs():
+    user = current_user() #verificare sesiune
+    if not user:
+        return redirect(url_for("login"))
+
+    if user["role"] != "MANAGER": #doar managerii pot vedea audit log ul
+        return redirect(url_for("home"))
+
+    db = get_db()
+    logs = db.execute("SELECT al.*, u.email FROM audit_logs al JOIN users u ON al.user_id==u.id").fetchall()
+    return render_template("audit-logs.html", user=user, logs=logs)
 
 
 if __name__ == '__main__':

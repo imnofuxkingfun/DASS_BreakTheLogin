@@ -92,7 +92,7 @@
                 {% endif %}
 
                 <td>
-                    {% if user["role"]=='MANAGER' or ticket.owner_id == user["id"] %}
+                    {% if user["role"]=='MANAGER' %}
                         <form method="post" action="tickets/{{ ticket.id }}">
                             <label> Update status </label>
                             <select name="status" id="status">

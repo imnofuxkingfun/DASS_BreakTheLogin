@@ -6,4 +6,9 @@
     <button>
     <a href="{{ url_for('tickets') }}">View Tickets</a>
     </button>
+    {% if user["role"] == 'MANAGER' %}
+        <button>
+        <a href="{{ url_for('audit_logs') }}">View Audit Logs</a>
+        </button>
+    {% endif %}
 {% endblock %}
